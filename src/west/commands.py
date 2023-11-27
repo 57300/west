@@ -113,6 +113,9 @@ WRN_COLOR = colorama.Fore.LIGHTYELLOW_EX
 #: Color used (when applicable) for printing with err() and die()
 ERR_COLOR = colorama.Fore.LIGHTRED_EX
 
+#: Color used (when applicable) for printing with my()
+MY_COLOR = colorama.Fore.LIGHTBLUE_EX
+
 class WestCommand(ABC):
     '''Abstract superclass for a west command.'''
 
@@ -503,6 +506,15 @@ class WestCommand(ABC):
         abort with the given *exit_code*.'''
         self.err(*args, fatal=True)
         sys.exit(exit_code)
+
+    def my(self, *args, end: str = '\n'):
+        if self.color_ui:
+            print(MY_COLOR, end='')
+
+        print(*args)
+
+        if self.color_ui:
+            self._reset_colors(sys.stdout)
 
     @property
     def color_ui(self) -> bool:
