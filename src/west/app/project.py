@@ -918,6 +918,9 @@ class Update(_ProjectCommand):
                            help='''rebase any checked out branch onto the new
                            manifest-rev instead (leaving behind partial
                            rebases on error)''')
+        group.add_argument('--match-upstream', action='store_true', help='''
+                           [CUSTOM] find and checkout the local branch which
+                           tracks the remote branch pointing to manifest-rev''')
 
         group = parser.add_argument_group(
             title='advanced options')
@@ -1203,9 +1206,16 @@ class Update(_ProjectCommand):
         current_branch, is_ancestor, try_rebase = self.decide_update_strategy(
             project, sha, stats, take_stats)
 
+        matched_upstream = None
+        if self.args.match_upstream:
+            matched_upstream = self.match_upstream(project, sha)
+
         # Finish the update. This may be a nop if we're keeping
         # descendants.
-        if self.args.keep_descendants and is_ancestor:
+        if matched_upstream:
+            self.my(f'checkout branch tracking {sha}: {matched_upstream}')
+            project.git(['checkout', matched_upstream])
+        elif self.args.keep_descendants and is_ancestor:
             # A descendant is currently checked out and keep_descendants was
             # given, so there's nothing more to do.
             self.inf(f'west update: left descendant branch '
@@ -1250,6 +1260,35 @@ class Update(_ProjectCommand):
             self.inf('performance statistics:')
             for stat, value in stats.items():
                 self.inf(f'  {stat}: {value} sec')
+
+    def match_upstream(self, project, sha):
+        # update() helper for the custom --match-upstream flag.
+
+        remote_branches = dict(
+            branch.split(' : ')
+            for branch in project.git(
+                'branch --remotes --format="%(objectname) : %(refname:short)"',
+                capture_stdout=True).stdout.decode().splitlines()
+        )
+        if (remote_branch := remote_branches.get(sha)) is None:
+            return None
+
+        fmt = '%(upstream:short) : %(upstream:trackshort) : %(refname:short)'
+        out = project.git(f'branch --format="{fmt}"', capture_stdout=True)
+
+        local_branches = list()
+        for line in out.stdout.decode().splitlines():
+            upstream, trackshort, branch = line.split(' : ')
+            if trackshort != '=' and not trackshort.endswith('>'):
+                continue
+            if upstream == remote_branch:
+                local_branches.append(branch)
+
+        if len(local_branches) > 1:
+            self.wrn(f'found multiple branches tracking {sha}:',
+                ', '.join(local_branches))
+
+        return local_branches[0] if local_branches else None
 
     def post_checkout_help(self, project, branch, sha, is_ancestor):
         # Print helpful information to the user about a project that
